@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Fraud Detection Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="scanlines"></div>
+
+<header class="topbar">
+  <div class="topbar__brand">
+    <span class="topbar__mark">◆</span>
+    <span>Ledger</span>
+    <span class="topbar__sub">fraud console</span>
+  </div>
+  <div class="topbar__stats">
+    <div class="stat">
+      <span class="stat__value">{{ model_auc }}%</span>
+      <span class="stat__label">ROC AUC</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value">{{ model_acc }}%</span>
+      <span class="stat__label">accuracy</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value">{{ trained_rows }}</span>
+      <span class="stat__label">rows trained on</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value">{{ model_name }}</span>
+      <span class="stat__label">active model</span>
+    </div>
+    <div class="stat">
+      <span class="ai-chip" data-on="{{ 'true' if ai_enabled else 'false' }}">
+        <span class="ai-chip__dot"></span>
+        {{ 'AI features on' if ai_enabled else 'AI features off' }}
+      </span>
+      <span class="stat__label">receipt scan · chat</span>
+    </div>
+  </div>
+</header>
+
+<div class="howto">
+  <span class="howto__label">New here?</span>
+  Use one of the two <strong>Try</strong> buttons for an instant example, or grab the
+  <strong>100-sample practice sheet</strong> (in the download) and copy any row's numbers into the form.
+</div>
+
+<main class="layout">
+
+  <section class="panel panel--form">
+    <h1 class="panel__title">Screen a transaction</h1>
+    <p class="panel__lede">Enter the transaction details below. The model scores it against patterns learned from real transfer, payment, cash-in and cash-out activity.</p>
+
+    <form id="predict-form" class="form">
+      <div class="field">
+        <label for="type">Transaction type</label>
+        <select id="type" name="type" required>
+          {% for t in transaction_types %}
+          <option value="{{ t }}">{{ t.replace('_', ' ').title() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="amount">Amount</label>
+        <input type="number" id="amount" name="amount" min="0" step="0.01" placeholder="0.00" required>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="oldbalanceOrg">Sender balance — before</label>
+          <input type="number" id="oldbalanceOrg" name="oldbalanceOrg" min="0" step="0.01" placeholder="0.00" required>
+        </div>
+        <div class="field">
+          <label for="newbalanceOrig">Sender balance — after</label>
+          <input type="number" id="newbalanceOrig" name="newbalanceOrig" min="0" step="0.01" placeholder="0.00" required>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="oldbalanceDest">Recipient balance — before</label>
+          <input type="number" id="oldbalanceDest" name="oldbalanceDest" min="0" step="0.01" placeholder="0.00" required>
+        </div>
+        <div class="field">
+          <label for="newbalanceDest">Recipient balance — after</label>
+          <input type="number" id="newbalanceDest" name="newbalanceDest" min="0" step="0.01" placeholder="0.00" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="step">Step <span class="field__hint">(hour of simulation, optional)</span></label>
+        <input type="number" id="step" name="step" min="1" step="1" placeholder="1">
+      </div>
+
+      <div class="field">
+        <label>Receipt photo <span class="field__hint">(optional — for your records, or to auto-fill the amount)</span></label>
+
+        <div class="receipt">
+          <div class="receipt__preview" id="receipt-preview">
+            <span id="receipt-placeholder">No photo attached</span>
+            <img id="receipt-img" class="hidden" alt="Receipt preview">
+            <button type="button" id="receipt-remove" class="receipt__remove hidden" title="Remove photo">✕</button>
+          </div>
+
+          <div class="receipt__actions">
+            <label class="receipt__btn" for="receipt-upload">
+              <span>Upload photo</span>
+              <input type="file" id="receipt-upload" accept="image/*" class="visually-hidden">
+            </label>
+            <label class="receipt__btn" for="receipt-camera">
+              <span>Use camera</span>
+              <input type="file" id="receipt-camera" accept="image/*" capture="environment" class="visually-hidden">
+            </label>
+            <button type="button" class="receipt__btn receipt__btn--extract" id="receipt-extract" disabled>
+              <span>Extract details</span>
+            </button>
+          </div>
+          <p class="receipt__note" id="receipt-note"></p>
+        </div>
+      </div>
+
+      <button type="submit" class="btn" id="submit-btn">
+        <span>Score transaction</span>
+      </button>
+
+      <div class="quickfill">
+        <span>Try:</span>
+        <button type="button" class="quickfill__btn" data-sample="legit">a routine payment</button>
+        <button type="button" class="quickfill__btn" data-sample="fraud">a suspicious transfer</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel panel--result">
+    <div id="result-empty" class="result-empty">
+      <div class="result-empty__dial"></div>
+      <p>Scores appear here once you submit a transaction.</p>
+    </div>
+
+    <div id="result-content" class="result-content hidden">
+      <div class="gauge">
+        <svg viewBox="0 0 200 120" class="gauge__svg">
+          <path d="M 20 110 A 80 80 0 0 1 180 110" class="gauge__track"/>
+          <path d="M 20 110 A 80 80 0 0 1 180 110" class="gauge__fill" id="gauge-fill"/>
+        </svg>
+        <div class="gauge__readout">
+          <span class="gauge__value" id="gauge-value">0%</span>
+          <span class="gauge__label">fraud probability</span>
+        </div>
+      </div>
+
+      <div class="verdict" id="verdict">
+        <span class="verdict__badge" id="verdict-badge">—</span>
+        <p class="verdict__text" id="verdict-text"></p>
+      </div>
+
+      <div class="breakdown">
+        <h2>What the model saw</h2>
+        <dl class="breakdown__list" id="breakdown-list"></dl>
+      </div>
+    </div>
+
+    <div id="result-error" class="result-error hidden">
+      <p id="error-text"></p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>Trained on {{ trained_rows }} transactions, {{ fraud_rows }} of them confirmed fraud — sampled from the PaySim mobile-money simulation dataset.</span>
+</footer>
+
+<button type="button" class="chat-toggle" id="chat-toggle" aria-label="Open chat assistant">
+  <span class="chat-toggle__icon">💬</span>
+</button>
+
+<div class="chat-panel hidden" id="chat-panel">
+  <div class="chat-panel__header">
+    <span>Ask Ledger</span>
+    <button type="button" class="chat-panel__close" id="chat-close" aria-label="Close chat">✕</button>
+  </div>
+  <div class="chat-panel__messages" id="chat-messages">
+    <div class="chat-msg chat-msg--bot">
+      Hi — ask me why a transaction scored the way it did, or anything about spotting fraud.
+    </div>
+  </div>
+  <form class="chat-panel__input" id="chat-form">
+    <input type="text" id="chat-input" placeholder="Ask a question…" autocomplete="off">
+    <button type="submit" aria-label="Send">↑</button>
+  </form>
+</div>
+
+<script>
+  window.LEDGER_AI_ENABLED = {{ 'true' if ai_enabled else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
